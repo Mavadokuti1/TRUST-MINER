@@ -216,7 +216,7 @@ Trust-Miner includes a standalone automated broadcaster engine (`auto_broadcaste
 
 ### 3. LinkedIn & Medium Cookies
 Because LinkedIn and Medium strictly protect their endpoints, you must manually extract your session cookies using your browser's Developer Tools (F12) -> Application/Storage tab.
-- **LinkedIn:** Copy the value of `li_at` and `JSESSIONID` cookies and add them to `.env`.
+- **LinkedIn:** Copy the value of `li_at` and `JSESSIONID` cookies and add them to `.env` as `LINKEDIN_LI_AT` and `LINKEDIN_JSESSIONID`.
 - **Medium:** Copy the value of the `sid` cookie and add it to `.env` as `MEDIUM_SID`.
 
 ### 4. Go Live

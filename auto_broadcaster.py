@@ -107,6 +107,7 @@ async def post_to_linkedin(message, li_at, jsessionid):
     try:
         li = LinkitinClient()
         await li.login_with_cookies(li_at, jsessionid)
+        # linkitin supports document (PDF carousel) uploads which get 3-5x reach. Text posting implemented here as baseline.
         await li.create_post(message)
         log.info("Successfully posted to LinkedIn.")
     except Exception as e:
@@ -152,8 +153,6 @@ def main():
     username = os.getenv("REDDIT_USERNAME")
     password = os.getenv("REDDIT_PASSWORD")
     
-    li_at = os.getenv("LI_AT_COOKIE")
-    jsessionid = os.getenv("JSESSIONID")
     medium_sid = os.getenv("MEDIUM_SID")
     
     message = build_message(deal, wiseurl_base)
@@ -179,14 +178,16 @@ def main():
         log.warning("Missing Reddit credentials. Skipping Reddit post.")
 
     # 3. LINKEDIN CONNECTOR
-    if li_at and jsessionid:
+    li_at = os.getenv("LINKEDIN_LI_AT")
+    jsessionid = os.getenv("LINKEDIN_JSESSIONID")
+    if not li_at or not jsessionid:
+        log.warning("Missing LinkedIn credentials. Skipping LinkedIn post.")
+    else:
         if not DRY_RUN:
             sleep_time = random.uniform(30, 90)
             log.info("Sleeping for %.1f seconds before LinkedIn post...", sleep_time)
             time.sleep(sleep_time)
         asyncio.run(post_to_linkedin(message, li_at, jsessionid))
-    else:
-        log.warning("Missing LinkedIn credentials. Skipping LinkedIn post.")
 
     # 4. MEDIUM CONNECTOR
     if medium_sid:
