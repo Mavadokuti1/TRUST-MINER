@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 import praw
 import spintax
-from linkitin import LinkedIn
+from linkitin import LinkitinClient
 
 DRY_RUN = True
 
@@ -105,8 +105,9 @@ async def post_to_linkedin(message, li_at, jsessionid):
         return
         
     try:
-        li = LinkedIn(li_at=li_at, jsessionid=jsessionid)
-        await li.post(message)
+        li = LinkitinClient()
+        await li.login_with_cookies(li_at, jsessionid)
+        await li.create_post(message)
         log.info("Successfully posted to LinkedIn.")
     except Exception as e:
         log.error("LinkedIn post failed: %s", e)

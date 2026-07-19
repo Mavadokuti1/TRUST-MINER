@@ -226,3 +226,12 @@ To activate the live broadcast:
 2. Set `DRY_RUN = False`.
 3. Run `python auto_broadcaster.py`.
 
+## Programmatic SEO Setup
+This project includes a powerful programmatic SEO engine that automatically builds a massive static site containing all database deals. This allows you to capture long-tail search traffic on Google.
+
+1. **Generate the Site:** Simply run the build script:
+   ```bash
+   python build_seo_site.py
+   ```
+2. **Deploy:** The script will automatically populate the `seo_site/public/` directory with an optimized `index.html` and over 1,000+ individual deal pages. You can upload this `public/` directory to any free static host like **GitHub Pages**, **Vercel**, or **Netlify**.
+
