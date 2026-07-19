@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 import praw
 import spintax
+import tweepy
 from linkitin import LinkitinClient
 
 DRY_RUN = True
@@ -39,7 +40,7 @@ def get_best_deal():
         con.close()
 
 def build_message(deal, wiseurl_base):
-    """Use spintax to generate a unique post."""
+    """Use spintax to generate a unique post. Returns (message_with_link, message_no_link, wise_url)."""
     slug = deal.get("slug", "")
     name = deal.get("name", "Unknown")
     category = deal.get("category") or "Software"
@@ -49,16 +50,19 @@ def build_message(deal, wiseurl_base):
     
     wise_url = f"{wiseurl_base}{slug}"
     
-    spin_template = (
+    # No-link version for Twitter tweet_1 (avoids X algorithm link suppression)
+    spin_no_link = (
         "{🚨|🔥|💎} {Micro-SaaS Deal|SaaS Acquisition|Profitable Startup} of the Day!\n"
         f"Name: {name} ({category})\n"
         f"MRR: ${mrr}/mo\n"
         f"Asking: ${price}\n"
-        f"{{This is a highly profitable|Great}} {multiple}x multiple.\n\n"
-        f"{{View the metrics here|Check the verified numbers}}: {wise_url}"
+        f"{{This is a highly profitable|Great}} {multiple}x multiple."
     )
+
+    # Full version with link for all other platforms
+    spin_template = spin_no_link + f"\n\n{{View the metrics here|Check the verified numbers}}: {wise_url}"
     
-    return spintax.spin(spin_template)
+    return spintax.spin(spin_template), spintax.spin(spin_no_link), wise_url
 
 def broadcast_telegram(message, bot_token, chat_id):
     """Send message to a Telegram Channel."""
@@ -133,6 +137,40 @@ def post_to_medium(message, medium_sid):
     except Exception as e:
         log.error("Medium post failed: %s", e)
 
+def post_to_twitter(message_no_link, wise_url, api_key, api_secret, access_token, access_secret):
+    """
+    Post a two-part thread to Twitter/X via tweepy (API v2).
+
+    Anti-algorithm strategy:
+    - tweet_1: metrics-only text with NO link (avoids X's link-suppression penalty on reach).
+    - tweet_2: reply to tweet_1 containing only the bridge URL, maximising first-tweet distribution.
+    """
+    if DRY_RUN:
+        log.info("[DRY RUN] Twitter tweet_1 Payload:\n%s", message_no_link)
+        log.info("[DRY RUN] Twitter tweet_2 Payload:\nCheck out the full deal details here: %s", wise_url)
+        return
+
+    try:
+        client = tweepy.Client(
+            consumer_key=api_key,
+            consumer_secret=api_secret,
+            access_token=access_token,
+            access_token_secret=access_secret,
+        )
+        # Step 1: Post the metrics tweet (no link = no reach penalty)
+        response = client.create_tweet(text=message_no_link)
+        tweet_1_id = response.data["id"]
+        log.info("Twitter tweet_1 posted (id=%s).", tweet_1_id)
+
+        # Step 2: Reply with the bridge link as a threaded reply
+        client.create_tweet(
+            text=f"Check out the full deal details here: {wise_url}",
+            in_reply_to_tweet_id=tweet_1_id,
+        )
+        log.info("Twitter tweet_2 (link reply) posted successfully.")
+    except Exception as e:
+        log.error("Twitter post failed: %s", e)
+
 def main():
     load_dotenv()
     
@@ -155,7 +193,12 @@ def main():
     
     medium_sid = os.getenv("MEDIUM_SID")
     
-    message = build_message(deal, wiseurl_base)
+    twitter_api_key = os.getenv("TWITTER_API_KEY")
+    twitter_api_secret = os.getenv("TWITTER_API_SECRET")
+    twitter_access_token = os.getenv("TWITTER_ACCESS_TOKEN")
+    twitter_access_secret = os.getenv("TWITTER_ACCESS_SECRET")
+
+    message, message_no_link, wise_url = build_message(deal, wiseurl_base)
     
     log.info("=== Spun Message ===")
     log.info("\n%s\n", message)
@@ -198,6 +241,17 @@ def main():
         post_to_medium(message, medium_sid)
     else:
         log.warning("Missing Medium credentials. Skipping Medium post.")
+
+    # 5. TWITTER/X THREAD CONNECTOR
+    if twitter_api_key and twitter_api_secret and twitter_access_token and twitter_access_secret:
+        if not DRY_RUN:
+            sleep_time = random.uniform(30, 90)
+            log.info("Sleeping for %.1f seconds before Twitter post...", sleep_time)
+            time.sleep(sleep_time)
+        post_to_twitter(message_no_link, wise_url, twitter_api_key, twitter_api_secret,
+                        twitter_access_token, twitter_access_secret)
+    else:
+        log.warning("Missing Twitter credentials. Skipping Twitter post.")
 
 if __name__ == "__main__":
     main()

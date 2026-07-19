@@ -219,6 +219,19 @@ Because LinkedIn and Medium strictly protect their endpoints, you must manually 
 - **LinkedIn:** Copy the value of `li_at` and `JSESSIONID` cookies and add them to `.env` as `LINKEDIN_LI_AT` and `LINKEDIN_JSESSIONID`.
 - **Medium:** Copy the value of the `sid` cookie and add it to `.env` as `MEDIUM_SID`.
 
+### 4. Twitter/X API Keys (API v2 Free Tier)
+Twitter/X integration uses the official [tweepy](https://www.tweepy.org/) library via API v2. You need a **Free Tier** developer account.
+1. Go to the [X Developer Portal](https://developer.twitter.com/en/portal/dashboard) and create a new App.
+2. Under **Keys and Tokens**, generate your **API Key & Secret** and **Access Token & Secret** (set app permissions to **Read and Write**).
+3. Copy all four values into your `.env` file:
+   ```
+   TWITTER_API_KEY=...
+   TWITTER_API_SECRET=...
+   TWITTER_ACCESS_TOKEN=...
+   TWITTER_ACCESS_SECRET=...
+   ```
+> **Note:** The broadcaster uses an anti-algorithm threading strategy — tweet_1 posts metrics with no link (maximising reach), and tweet_2 replies with the bridge URL.
+
 ### 4. Go Live
 By default, `auto_broadcaster.py` runs in **DRY_RUN** mode to prevent accidental API bans while testing.
 To activate the live broadcast:
