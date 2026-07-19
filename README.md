@@ -195,3 +195,29 @@ python telegram_bot.py
 ## License
 
 MIT — do whatever you want, just don't sell it back as a SaaS without buying me a coffee. ☕
+
+---
+
+## Broadcaster Setup (Omnipresence)
+
+Trust-Miner includes a standalone automated broadcaster engine (`auto_broadcaster.py`) that queries the database for the best deal of the day, generates a unique variant of the message using spintax, and distributes it across Telegram and Reddit.
+
+### 1. Telegram Channel
+1. Create a public Telegram channel.
+2. Add your bot as an Administrator.
+3. Get the channel ID (usually looks like `-100xxxxxxxxxx`).
+4. Add it to your `.env` as `TELEGRAM_CHANNEL_ID`.
+
+### 2. Reddit API Credentials
+1. Go to [Reddit Apps](https://www.reddit.com/prefs/apps).
+2. Click **Create another app** (select "script").
+3. Name it, set redirect uri to `http://localhost:8080`, and create it.
+4. Copy the client ID (under the name) and the secret into your `.env`.
+
+### 3. Go Live
+By default, `auto_broadcaster.py` runs in **DRY_RUN** mode to prevent accidental API bans while testing.
+To activate the live broadcast:
+1. Open `auto_broadcaster.py`.
+2. Set `DRY_RUN = False`.
+3. Run `python auto_broadcaster.py`.
+
