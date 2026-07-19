@@ -214,7 +214,12 @@ Trust-Miner includes a standalone automated broadcaster engine (`auto_broadcaste
 3. Name it, set redirect uri to `http://localhost:8080`, and create it.
 4. Copy the client ID (under the name) and the secret into your `.env`.
 
-### 3. Go Live
+### 3. LinkedIn & Medium Cookies
+Because LinkedIn and Medium strictly protect their endpoints, you must manually extract your session cookies using your browser's Developer Tools (F12) -> Application/Storage tab.
+- **LinkedIn:** Copy the value of `li_at` and `JSESSIONID` cookies and add them to `.env`.
+- **Medium:** Copy the value of the `sid` cookie and add it to `.env` as `MEDIUM_SID`.
+
+### 4. Go Live
 By default, `auto_broadcaster.py` runs in **DRY_RUN** mode to prevent accidental API bans while testing.
 To activate the live broadcast:
 1. Open `auto_broadcaster.py`.

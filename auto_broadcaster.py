@@ -4,11 +4,14 @@ import logging
 import sqlite3
 import random
 import time
+import asyncio
+import subprocess
 from pathlib import Path
 from dotenv import load_dotenv
 
 import praw
 import spintax
+from linkitin import LinkedIn
 
 DRY_RUN = True
 
@@ -95,6 +98,39 @@ def post_to_reddit(message, client_id, client_secret, username, password):
     except Exception as e:
         log.error("Reddit post failed: %s", e)
 
+async def post_to_linkedin(message, li_at, jsessionid):
+    """Post message to LinkedIn."""
+    if DRY_RUN:
+        log.info("[DRY RUN] LinkedIn Payload:\n%s", message)
+        return
+        
+    try:
+        li = LinkedIn(li_at=li_at, jsessionid=jsessionid)
+        await li.post(message)
+        log.info("Successfully posted to LinkedIn.")
+    except Exception as e:
+        log.error("LinkedIn post failed: %s", e)
+
+def post_to_medium(message, medium_sid):
+    """Post message to Medium via medium-ops CLI."""
+    if DRY_RUN:
+        log.info("[DRY RUN] Medium Payload:\n%s", message)
+        return
+        
+    try:
+        temp_dir = os.environ.get("TEMP", "/tmp")
+        draft_path = Path(temp_dir) / "medium_draft.md"
+        with open(draft_path, "w", encoding="utf-8") as f:
+            f.write(message)
+            
+        env = os.environ.copy()
+        env["MEDIUM_SID"] = medium_sid
+        
+        subprocess.run(["medium-ops", "publish", str(draft_path)], env=env, check=True, capture_output=True)
+        log.info("Successfully posted to Medium.")
+    except Exception as e:
+        log.error("Medium post failed: %s", e)
+
 def main():
     load_dotenv()
     
@@ -115,19 +151,23 @@ def main():
     username = os.getenv("REDDIT_USERNAME")
     password = os.getenv("REDDIT_PASSWORD")
     
+    li_at = os.getenv("LI_AT_COOKIE")
+    jsessionid = os.getenv("JSESSIONID")
+    medium_sid = os.getenv("MEDIUM_SID")
+    
     message = build_message(deal, wiseurl_base)
     
     log.info("=== Spun Message ===")
     log.info("\n%s\n", message)
     log.info("====================")
     
-    # TELEGRAM NUCLEUS
+    # 1. TELEGRAM NUCLEUS
     if bot_token and channel_id:
         broadcast_telegram(message, bot_token, channel_id)
     else:
         log.warning("Missing Telegram credentials. Skipping Telegram broadcast.")
         
-    # REDDIT DEAD THREAD REVIVAL
+    # 2. REDDIT DEAD THREAD REVIVAL
     if client_id and client_secret and username and password:
         if not DRY_RUN:
             sleep_time = random.uniform(30, 90)
@@ -136,6 +176,26 @@ def main():
         post_to_reddit(message, client_id, client_secret, username, password)
     else:
         log.warning("Missing Reddit credentials. Skipping Reddit post.")
+
+    # 3. LINKEDIN CONNECTOR
+    if li_at and jsessionid:
+        if not DRY_RUN:
+            sleep_time = random.uniform(30, 90)
+            log.info("Sleeping for %.1f seconds before LinkedIn post...", sleep_time)
+            time.sleep(sleep_time)
+        asyncio.run(post_to_linkedin(message, li_at, jsessionid))
+    else:
+        log.warning("Missing LinkedIn credentials. Skipping LinkedIn post.")
+
+    # 4. MEDIUM CONNECTOR
+    if medium_sid:
+        if not DRY_RUN:
+            sleep_time = random.uniform(30, 90)
+            log.info("Sleeping for %.1f seconds before Medium post...", sleep_time)
+            time.sleep(sleep_time)
+        post_to_medium(message, medium_sid)
+    else:
+        log.warning("Missing Medium credentials. Skipping Medium post.")
 
 if __name__ == "__main__":
     main()
