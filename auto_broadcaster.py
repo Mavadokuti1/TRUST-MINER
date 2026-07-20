@@ -48,7 +48,7 @@ def build_message(deal, wiseurl_base):
     price = f"{deal.get('price', 0):,.0f}" if deal.get("price") is not None else "0"
     multiple = f"{deal.get('multiple', 0):.2f}" if deal.get("multiple") is not None else "N/A"
     
-    wise_url = f"{wiseurl_base}{slug}"
+    wise_url = f"{wiseurl_base}{slug}?ref=ebube-promise-3e1ebe"
     
     # No-link version for Twitter tweet_1 (avoids X algorithm link suppression)
     spin_no_link = (
