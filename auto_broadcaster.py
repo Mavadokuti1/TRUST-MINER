@@ -73,10 +73,12 @@ def broadcast_telegram(message, bot_token, chat_id):
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     try:
         r = requests.post(url, json={"chat_id": chat_id, "text": message})
-        r.raise_for_status()
+        if not r.ok:
+            log.error("Telegram broadcast failed: HTTP %s — %s", r.status_code, r.json())
+            return
         log.info("Successfully broadcasted to Telegram.")
     except Exception as e:
-        log.error("Telegram broadcast failed: %s", e)
+        log.error("Telegram broadcast failed (exception): %s", e)
 
 def post_to_reddit(message, client_id, client_secret, username, password):
     """Post message to Reddit."""
