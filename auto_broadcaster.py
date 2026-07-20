@@ -14,12 +14,12 @@ import spintax
 import tweepy
 from linkitin import LinkitinClient
 
-DRY_RUN = True
+DRY_RUN = False
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent / "trustmrr_deals.db"
+DB_PATH = Path(os.getenv("DB_PATH", str(Path(__file__).parent / "trustmrr_deals.db")))
 
 def get_best_deal():
     """Query the database for the absolute best deal (lowest multiple)."""
@@ -169,7 +169,13 @@ def post_to_twitter(message_no_link, wise_url, api_key, api_secret, access_token
         )
         log.info("Twitter tweet_2 (link reply) posted successfully.")
     except Exception as e:
-        log.error("Twitter post failed: %s", e)
+        err_msg = str(e)
+        if "402" in err_msg or "depleted" in err_msg or "payment" in err_msg.lower():
+            log.warning("[WARNING] Twitter quota depleted. Skipping to next platform.")
+        elif "403" in err_msg or "forbidden" in err_msg.lower():
+            log.warning("[WARNING] Twitter access forbidden / permissions issue. Skipping to next platform.")
+        else:
+            log.error("Twitter post failed: %s", e)
 
 def main():
     load_dotenv()

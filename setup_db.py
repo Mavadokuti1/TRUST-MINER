@@ -25,12 +25,13 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+import os
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-DB_PATH = Path(__file__).parent / "trustmrr_deals.db"
+DB_PATH = Path(os.getenv("DB_PATH", str(Path(__file__).parent / "trustmrr_deals.db")))
 
 # ---------------------------------------------------------------------------
 # SQL Definitions

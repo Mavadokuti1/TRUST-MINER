@@ -9,7 +9,7 @@ from collections import defaultdict
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent / "trustmrr_deals.db"
+DB_PATH = Path(os.getenv("DB_PATH", str(Path(__file__).parent / "trustmrr_deals.db")))
 TEMPLATES_DIR = Path(__file__).parent / "seo_site" / "templates"
 PUBLIC_DIR = Path(__file__).parent / "seo_site" / "public"
 

@@ -17,6 +17,10 @@ Uses python-telegram-bot v21 (async / Application pattern).
 
 import logging
 import sqlite3
+import sys
+import threading
+import time
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -48,7 +52,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
 AFFILIATE_TAG: str = os.getenv("AFFILIATE_TAG", "")
-DB_PATH: Path = Path(__file__).parent / "trustmrr_deals.db"
+DB_PATH: Path = Path(os.getenv("DB_PATH", str(Path(__file__).parent / "trustmrr_deals.db")))
 
 if not BOT_TOKEN:
     raise EnvironmentError(
@@ -380,16 +384,59 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Background Scheduler
+# ---------------------------------------------------------------------------
+
+def run_scheduler() -> None:
+    """
+    Background worker loop that runs daily_ingest.py and auto_broadcaster.py
+    sequentially on startup and then on a 24-hour cycle.
+    """
+    log.info("Background scheduler thread started.")
+    # Quick initial delay to let the bot startup and print logs
+    time.sleep(5)
+    
+    while True:
+        log.info("Starting scheduled database check/creation...")
+        try:
+            subprocess.run([sys.executable, "setup_db.py"], check=True)
+            log.info("Database validation complete.")
+        except Exception as e:
+            log.error("Database setup validation failed: %s", e)
+
+        log.info("Starting scheduled ingestion (daily_ingest.py)...")
+        try:
+            subprocess.run([sys.executable, "daily_ingest.py"], check=True)
+            log.info("Scheduled ingestion complete.")
+        except Exception as e:
+            log.error("Scheduled ingestion failed: %s", e)
+
+        log.info("Starting scheduled broadcasting (auto_broadcaster.py)...")
+        try:
+            subprocess.run([sys.executable, "auto_broadcaster.py"], check=True)
+            log.info("Scheduled broadcasting complete.")
+        except Exception as e:
+            log.error("Scheduled broadcasting failed: %s", e)
+
+        log.info("Scheduler cycle finished. Next run in 24 hours...")
+        time.sleep(86400)
+
+
+# ---------------------------------------------------------------------------
 # Application Bootstrap
 # ---------------------------------------------------------------------------
 
 def main() -> None:
     """
-    Build the PTB Application, register command handlers, and start polling.
-    Blocks until interrupted with Ctrl-C.
+    Build the PTB Application, register command handlers, start background scheduler,
+    and start polling. Blocks until interrupted with Ctrl-C.
     """
     log.info("Starting Trust-Miner Telegram Bot …")
     log.info("Database path: %s", DB_PATH)
+
+    # Start the daemon background scheduler thread
+    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+    scheduler_thread.start()
 
     app = (
         Application.builder()

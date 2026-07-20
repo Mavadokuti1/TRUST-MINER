@@ -1,0 +1,44 @@
+services:
+  - type: worker
+    name: trust-miner-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python telegram_bot.py
+    plan: starter  # Note: SQLite Persistent Disks require Starter plan or above on Render
+    disk:
+      name: trust-miner-db
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DB_PATH
+        value: /var/data/trustmrr_deals.db
+      - key: BOT_TOKEN
+        sync: false
+      - key: AFFILIATE_TAG
+        value: ebube-promise-3e1ebe
+      - key: TELEGRAM_CHANNEL_ID
+        sync: false
+      - key: REDDIT_CLIENT_ID
+        sync: false
+      - key: REDDIT_CLIENT_SECRET
+        sync: false
+      - key: REDDIT_USERNAME
+        sync: false
+      - key: REDDIT_PASSWORD
+        sync: false
+      - key: WISEURL_BASE
+        value: https://trustmrr.com/startup/
+      - key: LINKEDIN_LI_AT
+        sync: false
+      - key: LINKEDIN_JSESSIONID
+        sync: false
+      - key: MEDIUM_SID
+        sync: false
+      - key: TWITTER_API_KEY
+        sync: false
+      - key: TWITTER_API_SECRET
+        sync: false
+      - key: TWITTER_ACCESS_TOKEN
+        sync: false
+      - key: TWITTER_ACCESS_SECRET
+        sync: false

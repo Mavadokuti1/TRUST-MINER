@@ -18,6 +18,7 @@ import asyncio
 import aiohttp
 import logging
 import sqlite3
+import os
 import time
 import random
 import re
@@ -40,7 +41,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-DB_PATH = Path(__file__).parent / "trustmrr_deals.db"
+DB_PATH = Path(os.getenv("DB_PATH", str(Path(__file__).parent / "trustmrr_deals.db")))
 
 API_URL = "https://trustmrr.com/api/ai"
 SITEMAP_URLS = [
