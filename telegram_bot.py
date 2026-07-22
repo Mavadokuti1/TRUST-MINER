@@ -64,10 +64,12 @@ WEBHOOK_URL: str = os.getenv("WEBHOOK_URL", "").rstrip("/")
 DB_PATH: Path = Path(os.getenv("DB_PATH", str(Path(__file__).parent / "trustmrr_deals.db")))
 PORT: int = int(os.getenv("PORT", "10000"))
 
-if not BOT_TOKEN and not TEST_MODE:
-    raise EnvironmentError("BOT_TOKEN is not set. Add it in the Render dashboard (Environment).")
+# NOTE: A missing/invalid BOT_TOKEN must NOT crash the process. On Render a crash
+# at boot means the web server never binds, so the router returns "Not Found" (404)
+# for every path — including /healthz. Instead we bind the HTTP server first and
+# wire Telegram concurrently, swallowing any Telegram failure (see run()).
 
-# Set at startup; None while in TEST_MODE.
+# Set once Telegram is wired; stays None in TEST_MODE / HTTP-only / on failure.
 application: Application | None = None
 
 
@@ -259,7 +261,9 @@ async def handle_root(request: web.Request) -> web.Response:
 
 
 async def handle_health(request: web.Request) -> web.Response:
-    return web.json_response({"status": "ok", "test_mode": TEST_MODE})
+    return web.json_response(
+        {"status": "ok", "test_mode": TEST_MODE, "telegram": application is not None}
+    )
 
 
 async def handle_trigger(request: web.Request) -> web.Response:
@@ -277,7 +281,7 @@ async def handle_trigger(request: web.Request) -> web.Response:
 
 
 async def handle_webhook(request: web.Request) -> web.Response:
-    if request.match_info.get("token") != BOT_TOKEN:
+    if not BOT_TOKEN or request.match_info.get("token") != BOT_TOKEN:
         return web.Response(status=403, text="forbidden")
     if TEST_MODE or application is None:
         return web.json_response({"status": "ok", "test_mode": True})
@@ -301,32 +305,58 @@ def build_web_app() -> web.Application:
     return web_app
 
 
-async def run() -> None:
+async def _setup_telegram() -> None:
+    """Wire up live Telegram. Any failure here is logged and swallowed so the already-bound
+    HTTP server keeps serving — a boot crash would make Render return 404 for all paths."""
     global application
-    init_db(DB_PATH)
-
-    if not TEST_MODE:
-        application = Application.builder().token(BOT_TOKEN).build()
-        application.add_handler(CommandHandler("start", cmd_start))
-        application.add_handler(CommandHandler("price", cmd_price))
-        application.add_handler(CommandHandler("stats", cmd_stats))
-        await application.initialize()
-        await application.start()
+    try:
+        app = Application.builder().token(BOT_TOKEN).build()
+        app.add_handler(CommandHandler("start", cmd_start))
+        app.add_handler(CommandHandler("price", cmd_price))
+        app.add_handler(CommandHandler("stats", cmd_stats))
+        await app.initialize()
+        await app.start()
         if WEBHOOK_URL:
             full = f"{WEBHOOK_URL}/webhook/{BOT_TOKEN}"
-            await application.bot.set_webhook(
+            await app.bot.set_webhook(
                 url=full, allowed_updates=Update.ALL_TYPES, drop_pending_updates=True
             )
             log.info("Webhook registered at %s/webhook/***", WEBHOOK_URL)
         else:
             log.warning("WEBHOOK_URL not set — Telegram will not deliver updates until it is.")
-    else:
-        log.info("TEST_MODE enabled — serving HTTP routes without a live Telegram connection.")
+        application = app
+    except Exception as exc:
+        application = None
+        log.exception(
+            "Telegram initialisation failed (%s). Continuing in HTTP-only mode so the web "
+            "service stays reachable; verify BOT_TOKEN / WEBHOOK_URL in the Render dashboard.",
+            exc,
+        )
 
+
+async def run() -> None:
+    init_db(DB_PATH)
+
+    # Bind the HTTP server FIRST so /healthz answers immediately and the deploy passes
+    # Render's health check even if Telegram's API is slow or unreachable. Binds to the
+    # port Render provides via $PORT, on all interfaces (0.0.0.0).
     runner = web.AppRunner(build_web_app())
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", PORT).start()
     log.info("HTTP server listening on 0.0.0.0:%d", PORT)
+
+    if TEST_MODE:
+        log.info("TEST_MODE enabled — serving HTTP routes without a live Telegram connection.")
+    elif not BOT_TOKEN:
+        log.error(
+            "BOT_TOKEN is not set — running in HTTP-only mode. Telegram commands are DISABLED "
+            "until BOT_TOKEN is configured in the Render dashboard. /healthz and /trigger-ingest "
+            "remain available."
+        )
+    else:
+        # Wire Telegram concurrently — never block the already-bound server on its handshake.
+        asyncio.create_task(_setup_telegram())
+
     await asyncio.Event().wait()  # run forever
 
 
