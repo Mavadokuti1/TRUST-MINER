@@ -80,6 +80,20 @@ def upload_secret(secret_name: str, secret_value: str, key_id: str, public_key_b
         return False
 
 
+def list_secrets():
+    """List all secrets in the repository for verification."""
+    print("\n[VERIFICATION] Listing all GitHub Repository Secrets:")
+    r = requests.get(f"{API_BASE}/actions/secrets", headers=HEADERS, timeout=15)
+    if not r.ok:
+        print(f"[ERROR] Failed to list secrets: HTTP {r.status_code} — {r.text}")
+        return
+    data = r.json()
+    secrets = data.get("secrets", [])
+    for secret in secrets:
+        print(f"  - {secret['name']} (updated: {secret['updated_at']})")
+    print(f"Total secrets found: {len(secrets)}")
+
+
 def main():
     if not GITHUB_TOKEN:
         print("[ERROR] GITHUB_TOKEN not found in .env")
@@ -105,6 +119,10 @@ def main():
 
     print("-" * 55)
     print(f"Result: {passed} secrets uploaded, {failed} failed.")
+    
+    # List the secrets for mandatory verification
+    list_secrets()
+    
     if failed == 0:
         print("All secrets securely stored in GitHub Repository Secrets.")
     sys.exit(0 if failed == 0 else 1)

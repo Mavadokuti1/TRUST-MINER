@@ -13,6 +13,7 @@ import praw
 import spintax
 import tweepy
 from linkitin import LinkitinClient
+from seo_enrichment import get_seo_hashtags
 
 DRY_RUN = False
 
@@ -40,7 +41,7 @@ def get_best_deal():
         con.close()
 
 def build_message(deal, wiseurl_base):
-    """Use spintax to generate a unique post. Returns (message_with_link, message_no_link, wise_url)."""
+    """Use spintax to generate a unique post with SEO hashtag enrichment. Returns (message_with_link, message_no_link, wise_url)."""
     slug = deal.get("slug", "")
     name = deal.get("name", "Unknown")
     category = deal.get("category") or "Software"
@@ -49,6 +50,7 @@ def build_message(deal, wiseurl_base):
     multiple = f"{deal.get('multiple', 0):.2f}" if deal.get("multiple") is not None else "N/A"
     
     wise_url = f"{wiseurl_base}{slug}?ref=ebube-promise-3e1ebe"
+    hashtags = get_seo_hashtags(category, name)
     
     # No-link version for Twitter tweet_1 (avoids X algorithm link suppression)
     spin_no_link = (
@@ -56,11 +58,20 @@ def build_message(deal, wiseurl_base):
         f"Name: {name} ({category})\n"
         f"MRR: ${mrr}/mo\n"
         f"Asking: ${price}\n"
-        f"{{This is a highly profitable|Great}} {multiple}x multiple."
+        f"{{This is a highly profitable|Great}} {multiple}x multiple.\n\n"
+        f"{hashtags}"
     )
 
     # Full version with link for all other platforms
-    spin_template = spin_no_link + f"\n\n{{View the metrics here|Check the verified numbers}}: {wise_url}"
+    spin_template = (
+        "{🚨|🔥|💎} {Micro-SaaS Deal|SaaS Acquisition|Profitable Startup} of the Day!\n"
+        f"Name: {name} ({category})\n"
+        f"MRR: ${mrr}/mo\n"
+        f"Asking: ${price}\n"
+        f"{{This is a highly profitable|Great}} {multiple}x multiple.\n\n"
+        f"{{View the metrics here|Check the verified numbers}}: {wise_url}\n\n"
+        f"{hashtags}"
+    )
     
     return spintax.spin(spin_template), spintax.spin(spin_no_link), wise_url
 
