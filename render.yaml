@@ -1,44 +1,29 @@
 services:
-  - type: worker
+  # Free Web Service (webhook mode) — sleeps when idle, woken by Telegram POSTs
+  # and by the daily cron-job.org ping to /trigger-ingest.
+  - type: web
     name: trust-miner-bot
-    env: python
+    runtime: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python telegram_bot.py
-    plan: starter  # Note: SQLite Persistent Disks require Starter plan or above on Render
-    disk:
-      name: trust-miner-db
-      mountPath: /var/data
-      sizeGB: 1
+    healthCheckPath: /healthz
     envVars:
-      - key: DB_PATH
-        value: /var/data/trustmrr_deals.db
       - key: BOT_TOKEN
-        sync: false
+        sync: false            # enter in the Render dashboard (never committed)
       - key: AFFILIATE_TAG
-        value: ebube-promise-3e1ebe
+        sync: false
+      - key: WEBHOOK_URL
+        sync: false            # e.g. https://trust-miner-bot.onrender.com
       - key: TELEGRAM_CHANNEL_ID
-        sync: false
-      - key: REDDIT_CLIENT_ID
-        sync: false
-      - key: REDDIT_CLIENT_SECRET
-        sync: false
-      - key: REDDIT_USERNAME
-        sync: false
-      - key: REDDIT_PASSWORD
-        sync: false
-      - key: WISEURL_BASE
-        value: https://trustmrr.com/startup/
-      - key: LINKEDIN_LI_AT
-        sync: false
-      - key: LINKEDIN_JSESSIONID
-        sync: false
-      - key: MEDIUM_SID
-        sync: false
+        sync: false            # optional — only if you broadcast to a channel
       - key: TWITTER_API_KEY
-        sync: false
+        sync: false            # optional — only if you post to X
       - key: TWITTER_API_SECRET
         sync: false
       - key: TWITTER_ACCESS_TOKEN
         sync: false
       - key: TWITTER_ACCESS_SECRET
         sync: false
+      - key: INGEST_SECRET
+        sync: false            # optional — protects /trigger-ingest

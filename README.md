@@ -1,43 +1,32 @@
 # Trust-Miner 🍌
 
-> **Automated micro-SaaS deal discovery + Telegram bot** — powered by TrustMRR
+> **Micro-SaaS deal discovery + a compliant Telegram/X publisher** — powered by TrustMRR
 
-Trust-Miner is a lightweight Python pipeline that:
+Trust-Miner is a lightweight Python service that:
 
-1. **Broad Scrapes** TrustMRR's public sitemaps to discover 1000+ active deal listings (Base Layer).
-2. **Enriches** those listings via the `/api/ai` endpoint to pull pristine financial metrics (askingPrice, MRR, multiple) for 'for-sale' deals (Gold Layer).
-3. **Stores** everything in a local SQLite database with full upsert support.
-4. **Broadcasts** deals to subscribers through a Telegram bot with budget-filtered queries.
+1. **Scrapes** TrustMRR's public sitemaps to discover active deal listings.
+2. **Enriches** them via the public `/api/ai` endpoint (asking price, MRR, multiple).
+3. **Stores** everything in a local SQLite database.
+4. **Serves** deals on demand via a Telegram bot (`/price`, `/stats`).
+5. **Broadcasts** a clean daily digest to your own Telegram channel and X/Twitter — using official APIs only.
+
+It runs as a single **Render Free Web Service** in webhook mode, with a daily
+scrape/broadcast triggered by an external cron ping (e.g. cron-job.org).
 
 ---
 
-## Architecture
+## Compliance
 
-```
-┌─────────────────────────────────────────────────────┐
-│                   Trust-Miner Stack                 │
-│                                                     │
-│  ┌─────────────┐       ┌──────────────────────────┐ │
-│  │ TrustMRR    │──────▶│  daily_ingest.py         │ │
-│  │ Sitemaps    │       │  (Hybrid Engine v3)      │ │
-│  │ & /api/ai   │       │  Step 1: Sitemap Scrape  │ │
-│  └─────────────┘       │  Step 2: API Enrichment  │ │
-│                        └────────────┬─────────────┘ │
-│                                     │               │
-│                        ┌────────────▼─────────────┐ │
-│                        │  trustmrr_deals.db       │ │
-│                        │  (SQLite — WAL mode)     │ │
-│                        │  • deals                 │ │
-│                        │  • subscribers           │ │
-│                        │  • ingestion_log         │ │
-│                        └────────────┬─────────────┘ │
-│                                     │               │
-│                        ┌────────────▼─────────────┐ │
-│                        │  telegram_bot.py          │ │
-│                        │  /start  /price  /stats  │ │
-│                        └──────────────────────────┘ │
-└─────────────────────────────────────────────────────┘
-```
+This project uses **official platform APIs only**. It deliberately contains:
+
+- ❌ No scraped session cookies (no LinkedIn / Medium / Reddit cookie automation).
+- ❌ No spintax / spun message variants.
+- ❌ No "human-like" random sleeps to evade spam filters.
+- ❌ No link-splitting into reply tweets to dodge reach penalties.
+- ❌ No programmatic doorway pages.
+
+It posts genuine deal metrics to **your own** channels, with a disclosed
+affiliate link, at a modest cadence (≤ 3 tweets/run, one Telegram digest).
 
 ---
 
@@ -45,124 +34,24 @@ Trust-Miner is a lightweight Python pipeline that:
 
 | File | Purpose |
 |---|---|
-| `requirements.txt` | Python package dependencies |
-| `.env.example` | Template for secrets — copy to `.env` |
-| `.gitignore` | Excludes `.env`, `*.db`, caches, venv |
-| `setup_db.py` | One-time DB initialiser |
-| `daily_ingest.py` | Scrape → parse → upsert pipeline |
-| `telegram_bot.py` | Telegram bot interface |
+| `setup_db.py` | One-time SQLite initialiser (`deals`, `subscribers`, `ingestion_log`) |
+| `daily_ingest.py` | Scrape → parse → enrich → upsert pipeline |
+| `broadcaster.py` | Clean daily digest to Telegram channel + one X post (official APIs) |
+| `seo_helper.py` | 3–5 relevant, natural hashtags per deal category |
+| `telegram_bot.py` | Webhook bot + HTTP server (`/webhook`, `/trigger-ingest`, `/healthz`) |
+| `render.yaml` | Render Free Web Service blueprint |
+| `.env.example` | Environment variable template |
 
 ---
 
-## Quick Start
+## HTTP Endpoints
 
-### 1. Clone / Download
-
-```bash
-git clone <your-repo-url>
-cd trust-miner
-```
-
-### 2. Create & Activate Virtual Environment
-
-```bash
-# Windows (PowerShell)
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-
-# macOS / Linux
-python3 -m venv venv
-source venv/bin/activate
-```
-
-### 3. Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Configure Secrets
-
-```bash
-# Copy the template
-cp .env.example .env
-
-# Edit .env and fill in your values:
-#   BOT_TOKEN     — from @BotFather on Telegram
-#   AFFILIATE_TAG — your TrustMRR referral ID (optional)
-```
-
-### 5. Initialise the Database
-
-```bash
-python setup_db.py
-```
-
-Expected output:
-```
-2026-07-19 08:00:00 [INFO] Connecting to database at: trustmrr_deals.db
-2026-07-19 08:00:00 [INFO] Creating table: deals …
-2026-07-19 08:00:00 [INFO] Creating table: subscribers …
-2026-07-19 08:00:00 [INFO] Creating table: ingestion_log …
-2026-07-19 08:00:00 [INFO] ✅ Database initialised successfully.
-```
-
-### 6. Run the Ingestion Engine
-
-```bash
-python daily_ingest.py
-```
-
-This will:
-- **Step 1:** Asynchronously scrape TrustMRR's sitemap XML for all listing URLs and extract base metadata.
-- **Step 2:** Fetch the `/api/ai` endpoint to enrich top deals with precise financial data.
-- Upsert records into `trustmrr_deals.db`.
-- Log results to the `ingestion_log` table.
-
-**Schedule for daily runs:**
-
-```bash
-# Linux / macOS cron (runs at 7 AM daily)
-0 7 * * * /path/to/venv/bin/python /path/to/daily_ingest.py
-
-# Windows Task Scheduler (PowerShell)
-# Create a scheduled task pointing to:
-#   .\venv\Scripts\python.exe daily_ingest.py
-```
-
-### 7. Start the Telegram Bot
-
-```bash
-python telegram_bot.py
-```
-
----
-
-## Telegram Bot Commands
-
-| Command | Description | Example |
-|---|---|---|
-| `/start` | Register & show welcome message | `/start` |
-| `/price <amount>` | Find top 3 deals ≤ budget (USD) | `/price 5000` |
-| `/stats` | Total deals & active categories | `/stats` |
-
-### Sample `/price` Output
-
-```
-🎯 Top 3 deals under $5,000
-
-#1 — My Awesome SaaS
-💰 Price:    $4,500
-📈 MRR:      $380/mo
-✖️ Multiple: 0.99×
-🏷 Category: SaaS
-⚙️ Stack:    Ruby on Rails, PostgreSQL
-🔗 View Listing
-
-─────────────────────
-#2 — Newsletter Tool
-...
-```
+| Method / Path | Purpose |
+|---|---|
+| `GET /` | Liveness string |
+| `GET /healthz` | JSON health check (Render health check path) |
+| `GET /trigger-ingest` | Run the daily scrape + broadcast (optional `?key=<INGEST_SECRET>`) |
+| `POST /webhook/<token>` | Telegram update delivery |
 
 ---
 
@@ -170,81 +59,69 @@ python telegram_bot.py
 
 | Variable | Required | Description |
 |---|---|---|
-| `BOT_TOKEN` | ✅ Yes | Telegram bot token from @BotFather |
-| `AFFILIATE_TAG` | Optional | Your TrustMRR referral/affiliate ID |
+| `BOT_TOKEN` | ✅ | Telegram bot token from @BotFather |
+| `WEBHOOK_URL` | ✅ (prod) | Public base URL of the Render service |
+| `AFFILIATE_TAG` | Optional | TrustMRR referral tag (disclosed on links) |
+| `TELEGRAM_CHANNEL_ID` | Optional | Channel to broadcast the daily digest to |
+| `TWITTER_API_KEY` / `_SECRET` / `ACCESS_TOKEN` / `ACCESS_SECRET` | Optional | Official X API v2 (Read+Write) |
+| `INGEST_SECRET` | Optional | Shared secret guarding `/trigger-ingest` |
+| `DB_PATH` | Optional | SQLite path (default `./trustmrr_deals.db`) |
+
+Any optional integration left unset is simply skipped — the service still runs.
+
+---
+
+## $0 Deployment (Render Free Web Service + cron-job.org)
+
+1. **Push this repo** to GitHub.
+2. On Render, **New → Blueprint**, point it at the repo (it reads `render.yaml`).
+3. Enter the `sync: false` env vars in the Render dashboard when prompted
+   (`BOT_TOKEN`, `WEBHOOK_URL`, and any optional integrations). Secrets are
+   entered directly into Render — never committed.
+4. After the first deploy, set `WEBHOOK_URL` to the service's public URL
+   (e.g. `https://trust-miner-bot.onrender.com`) and redeploy so the bot
+   registers its Telegram webhook on startup.
+5. On **cron-job.org**, create a daily job that does `GET`
+   `https://<your-service>.onrender.com/trigger-ingest` (append
+   `?key=<INGEST_SECRET>` if you set one). This refreshes the deals and posts
+   the daily digest, and also wakes the free service.
+
+> **Free-tier notes:** the service sleeps after ~15 min idle and cold-starts on
+> the next request, so the first command after a nap can lag a few seconds
+> (Telegram retries webhook delivery). The filesystem is ephemeral, so the
+> SQLite DB is rebuilt by the daily `/trigger-ingest` run.
+
+---
+
+## Local Development
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env      # fill in BOT_TOKEN etc.
+python setup_db.py
+python daily_ingest.py    # populate deals
+python telegram_bot.py    # start webhook server (set WEBHOOK_URL for live Telegram)
+```
+
+---
+
+## Telegram Commands
+
+| Command | Description | Example |
+|---|---|---|
+| `/start` | Register & show welcome | `/start` |
+| `/price <amount>` | Top 3 deals ≤ budget (USD) | `/price 5000` |
+| `/stats` | Totals & top categories | `/stats` |
 
 ---
 
 ## Security Notes
 
-- ⚠️ **Never commit `.env`** — it is in `.gitignore` by default.
-- The bot token grants full control of your Telegram bot. Treat it like a password.
-- The SQLite database contains subscriber chat IDs — handle with care.
-
----
-
-## Extending the System
-
-- **Add a `/latest` command**: query the 5 most recently added deals by `last_updated`.
-- **Push notifications**: store `chat_id`s and use `bot.send_message()` after each ingest run to alert subscribers to new deals.
-- **Deploy to a server**: use `systemd` (Linux) or Task Scheduler (Windows) to run both scripts persistently.
-- **PostgreSQL migration**: swap `sqlite3` for `psycopg2` and update `DB_PATH` to a connection string.
+- **Never commit `.env`** — it is git-ignored.
+- The bot token and API keys grant control of your accounts; treat them like passwords and store them only in Render's environment settings.
 
 ---
 
 ## License
 
-MIT — do whatever you want, just don't sell it back as a SaaS without buying me a coffee. ☕
-
----
-
-## Broadcaster Setup (Omnipresence)
-
-Trust-Miner includes a standalone automated broadcaster engine (`auto_broadcaster.py`) that queries the database for the best deal of the day, generates a unique variant of the message using spintax, and distributes it across Telegram and Reddit.
-
-### 1. Telegram Channel
-1. Create a public Telegram channel.
-2. Add your bot as an Administrator.
-3. Get the channel ID (usually looks like `-100xxxxxxxxxx`).
-4. Add it to your `.env` as `TELEGRAM_CHANNEL_ID`.
-
-### 2. Reddit API Credentials
-1. Go to [Reddit Apps](https://www.reddit.com/prefs/apps).
-2. Click **Create another app** (select "script").
-3. Name it, set redirect uri to `http://localhost:8080`, and create it.
-4. Copy the client ID (under the name) and the secret into your `.env`.
-
-### 3. LinkedIn & Medium Cookies
-Because LinkedIn and Medium strictly protect their endpoints, you must manually extract your session cookies using your browser's Developer Tools (F12) -> Application/Storage tab.
-- **LinkedIn:** Copy the value of `li_at` and `JSESSIONID` cookies and add them to `.env` as `LINKEDIN_LI_AT` and `LINKEDIN_JSESSIONID`.
-- **Medium:** Copy the value of the `sid` cookie and add it to `.env` as `MEDIUM_SID`.
-
-### 4. Twitter/X API Keys (API v2 Free Tier)
-Twitter/X integration uses the official [tweepy](https://www.tweepy.org/) library via API v2. You need a **Free Tier** developer account.
-1. Go to the [X Developer Portal](https://developer.twitter.com/en/portal/dashboard) and create a new App.
-2. Under **Keys and Tokens**, generate your **API Key & Secret** and **Access Token & Secret** (set app permissions to **Read and Write**).
-3. Copy all four values into your `.env` file:
-   ```
-   TWITTER_API_KEY=...
-   TWITTER_API_SECRET=...
-   TWITTER_ACCESS_TOKEN=...
-   TWITTER_ACCESS_SECRET=...
-   ```
-> **Note:** The broadcaster uses an anti-algorithm threading strategy — tweet_1 posts metrics with no link (maximising reach), and tweet_2 replies with the bridge URL.
-
-### 4. Go Live
-By default, `auto_broadcaster.py` runs in **DRY_RUN** mode to prevent accidental API bans while testing.
-To activate the live broadcast:
-1. Open `auto_broadcaster.py`.
-2. Set `DRY_RUN = False`.
-3. Run `python auto_broadcaster.py`.
-
-## Programmatic SEO Setup
-This project includes a powerful programmatic SEO engine that automatically builds a massive static site containing all database deals. This allows you to capture long-tail search traffic on Google.
-
-1. **Generate the Site:** Simply run the build script:
-   ```bash
-   python build_seo_site.py
-   ```
-2. **Deploy:** The script will automatically populate the `seo_site/public/` directory with an optimized `index.html` and over 1,000+ individual deal pages. You can upload this `public/` directory to any free static host like **GitHub Pages**, **Vercel**, or **Netlify**.
-
+MIT.
