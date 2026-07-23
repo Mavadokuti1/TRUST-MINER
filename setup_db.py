@@ -79,6 +79,18 @@ CREATE TABLE IF NOT EXISTS ingestion_log (
 );
 """
 
+# One row per calendar day. The PRIMARY KEY on broadcast_date is what makes the
+# daily broadcast idempotent: an atomic `INSERT OR IGNORE` lets exactly one
+# /trigger-ingest run "claim" the day and post; a duplicate cron retry finds the
+# row already present and skips the send. See broadcaster._claim_broadcast_slot.
+CREATE_BROADCAST_LOG_TABLE = """
+CREATE TABLE IF NOT EXISTS broadcast_log (
+    broadcast_date TEXT PRIMARY KEY,   -- UTC date (YYYY-MM-DD) — one broadcast per day
+    top_signature  TEXT,               -- '|'-joined deal slugs posted that day (audit)
+    posted_at      TEXT NOT NULL       -- ISO-8601 timestamp the slot was claimed
+);
+"""
+
 
 def init_db(db_path: Path = DB_PATH) -> None:
     """
@@ -104,6 +116,9 @@ def init_db(db_path: Path = DB_PATH) -> None:
 
         log.info("Creating table: ingestion_log …")
         cur.execute(CREATE_INGESTION_LOG_TABLE)
+
+        log.info("Creating table: broadcast_log …")
+        cur.execute(CREATE_BROADCAST_LOG_TABLE)
 
         con.commit()
         log.info("✅ Database initialised successfully.")

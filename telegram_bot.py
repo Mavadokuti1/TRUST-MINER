@@ -33,6 +33,7 @@ import asyncio
 import logging
 import os
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from pathlib import Path
@@ -255,25 +256,43 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # ---------------------------------------------------------------------------
 # Ingest + broadcast (runs in a worker thread; no blocking of the event loop)
 # ---------------------------------------------------------------------------
+# Second layer of duplicate protection: a non-blocking lock. /trigger-ingest runs
+# in a thread-pool executor, so two overlapping cron hits on the same warm instance
+# would spawn two threads. The first grabs the lock and runs; the second fails the
+# non-blocking acquire and returns immediately without a wasteful second ingest.
+# (The atomic per-day claim in broadcaster.broadcast() covers the sequential-retry
+# case where the first run already finished and released this lock.)
+_ingest_lock = threading.Lock()
+
+
 def _do_ingest_and_broadcast() -> dict:
-    summary: dict = {}
-    if os.getenv("SKIP_INGEST_ON_TRIGGER") == "1":
-        summary["ingest"] = "skipped"
-    else:
-        from daily_ingest import run_ingest
+    if not _ingest_lock.acquire(blocking=False):
+        log.warning(
+            "An ingest+broadcast run is already in progress — ignoring this concurrent "
+            "/trigger-ingest so the day's deals are not posted twice."
+        )
+        return {"status": "ignored", "reason": "run_already_in_progress"}
+    try:
+        summary: dict = {}
+        if os.getenv("SKIP_INGEST_ON_TRIGGER") == "1":
+            summary["ingest"] = "skipped"
+        else:
+            from daily_ingest import run_ingest
 
-        try:
-            run_ingest()
-            summary["ingest"] = "done"
-        except Exception as exc:
-            # A transient ingest/network failure must never abort the day's broadcast or
-            # crash the service — log it and broadcast whatever is already in the DB.
-            log.exception("Ingest failed; broadcasting cached deals instead: %s", exc)
-            summary["ingest"] = "failed"
-    from broadcaster import broadcast
+            try:
+                run_ingest()
+                summary["ingest"] = "done"
+            except Exception as exc:
+                # A transient ingest/network failure must never abort the day's broadcast or
+                # crash the service — log it and broadcast whatever is already in the DB.
+                log.exception("Ingest failed; broadcasting cached deals instead: %s", exc)
+                summary["ingest"] = "failed"
+        from broadcaster import broadcast
 
-    summary["broadcast"] = broadcast()
-    return summary
+        summary["broadcast"] = broadcast()
+        return summary
+    finally:
+        _ingest_lock.release()
 
 
 # ---------------------------------------------------------------------------
