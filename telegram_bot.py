@@ -34,7 +34,9 @@ import logging
 import os
 import sqlite3
 from datetime import datetime, timezone
+from email.utils import format_datetime
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 from aiohttp import web
 from dotenv import load_dotenv
@@ -159,6 +161,29 @@ def format_deal(row: sqlite3.Row, rank: int) -> str:
     )
 
 
+def build_welcome_message(first_name: str) -> str:
+    """High-converting /start welcome: leads with value, adds gentle urgency, and
+    ends with a clear share + notify call-to-action. No hype, no false promises."""
+    return (
+        f"👋 *Welcome aboard, {first_name}!*\n\n"
+        "You just joined *TRUST-MINER* — your daily edge for spotting profitable "
+        "micro-SaaS businesses *before everyone else does.*\n\n"
+        "Every day I hand you:\n"
+        "✅ Real acquisition deals with *verified MRR*\n"
+        "✅ The *lowest valuation multiples* — best value first\n"
+        "✅ Direct links to view financials and make an offer\n\n"
+        "⚡️ *Fresh deals drop daily at 8:00 AM.* The strongest ones get claimed "
+        "fast, so the early movers win.\n\n"
+        "*Try it right now:*\n"
+        "🔍 `/price 5000` — top deals under your budget\n"
+        "📊 `/stats` — what's on the market today\n\n"
+        "🔔 *Tap the bell to turn on notifications* so you never miss a drop.\n"
+        "📲 *Know a founder hunting for a business?* Forward this channel — "
+        "great deals are better shared.\n\n"
+        "Happy hunting! 🚀"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Command handlers
 # ---------------------------------------------------------------------------
@@ -172,15 +197,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         log.error("Failed to register subscriber %s: %s", chat_id, exc)
 
     first_name = user.first_name if user else "there"
-    welcome = (
-        f"👋 *Welcome, {first_name}!*\n\n"
-        "I'm *Trust-Miner Bot* — a scout for micro-SaaS acquisition deals "
-        "sourced from TrustMRR.\n\n"
-        "*Commands:*\n"
-        "🔍 `/price <amount>` — Top 3 deals under a budget (e.g. `/price 5000`)\n"
-        "📊 `/stats` — Database statistics\n\n"
-        "Happy deal hunting! 🚀"
-    )
+    welcome = build_welcome_message(first_name)
     await update.message.reply_text(welcome, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
 
 
@@ -245,12 +262,97 @@ def _do_ingest_and_broadcast() -> dict:
     else:
         from daily_ingest import run_ingest
 
-        run_ingest()
-        summary["ingest"] = "done"
+        try:
+            run_ingest()
+            summary["ingest"] = "done"
+        except Exception as exc:
+            # A transient ingest/network failure must never abort the day's broadcast or
+            # crash the service — log it and broadcast whatever is already in the DB.
+            log.exception("Ingest failed; broadcasting cached deals instead: %s", exc)
+            summary["ingest"] = "failed"
     from broadcaster import broadcast
 
     summary["broadcast"] = broadcast()
     return summary
+
+
+# ---------------------------------------------------------------------------
+# RSS feed (passive discoverability — latest deals as standard RSS 2.0)
+# ---------------------------------------------------------------------------
+def get_recent_deals_for_feed(limit: int = 10) -> list[sqlite3.Row]:
+    with get_connection() as con:
+        return con.execute(
+            """
+            SELECT slug, name, description, price, mrr, multiple, category, url, last_updated
+            FROM   deals
+            WHERE  on_sale = 1 AND price IS NOT NULL
+            ORDER  BY last_updated DESC
+            LIMIT  ?
+            """,
+            (limit,),
+        ).fetchall()
+
+
+def _feed_deal_url(row: sqlite3.Row) -> str:
+    base = row["url"] or f"https://trustmrr.com/startup/{row['slug']}"
+    if AFFILIATE_TAG:
+        sep = "&" if "?" in base else "?"
+        return f"{base}{sep}ref={AFFILIATE_TAG}"
+    return base
+
+
+def _rss_pubdate(iso: str) -> str:
+    try:
+        dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        dt = datetime.now(timezone.utc)
+    return format_datetime(dt)
+
+
+def build_rss(deals: list[sqlite3.Row], base_url: str) -> str:
+    """Render the latest deals as a standards-compliant RSS 2.0 document."""
+    now = format_datetime(datetime.now(timezone.utc))
+    root = base_url.rstrip("/")
+    items: list[str] = []
+    for d in deals:
+        price = f"${d['price']:,.0f}" if d["price"] else "N/A"
+        mrr = f"${d['mrr']:,.0f}/mo" if d["mrr"] else "N/A"
+        mult = f"{d['multiple']:.2f}x" if d["multiple"] is not None else "N/A"
+        cat = d["category"] or "Software"
+        title = f"{d['name']} — {mrr} MRR, asking {price} ({mult})"
+        desc = (
+            f"{d['name']} is a {cat} micro-SaaS currently for sale. "
+            f"MRR: {mrr}. Asking price: {price}. Valuation multiple: {mult}. "
+            f"View the full financials and make an offer."
+        )
+        items.append(
+            "    <item>\n"
+            f"      <title>{escape(title)}</title>\n"
+            f"      <link>{escape(_feed_deal_url(d))}</link>\n"
+            f"      <guid isPermaLink=\"false\">{escape(d['slug'])}</guid>\n"
+            f"      <category>{escape(cat)}</category>\n"
+            f"      <pubDate>{_rss_pubdate(d['last_updated'])}</pubDate>\n"
+            f"      <description>{escape(desc)}</description>\n"
+            "    </item>"
+        )
+    items_xml = "\n".join(items)
+    return (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n"
+        "  <channel>\n"
+        "    <title>TRUST-MINER — Daily Micro-SaaS Deals</title>\n"
+        f"    <link>{escape(root)}</link>\n"
+        f"    <atom:link href=\"{escape(root + '/feed.xml')}\" rel=\"self\" type=\"application/rss+xml\"/>\n"
+        "    <description>Hand-picked micro-SaaS and startup acquisition deals from TrustMRR, refreshed daily.</description>\n"
+        "    <language>en-us</language>\n"
+        f"    <lastBuildDate>{now}</lastBuildDate>\n"
+        "    <ttl>720</ttl>\n"
+        f"{items_xml}\n"
+        "  </channel>\n"
+        "</rss>\n"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -266,30 +368,58 @@ async def handle_health(request: web.Request) -> web.Response:
     )
 
 
+async def handle_feed(request: web.Request) -> web.Response:
+    try:
+        deals = get_recent_deals_for_feed(10)
+    except sqlite3.Error as exc:
+        log.error("/feed.xml DB error: %s", exc)
+        deals = []
+    base = WEBHOOK_URL or f"{request.scheme}://{request.host}"
+    xml = build_rss(deals, base)
+    log.info("/feed.xml served %d items.", len(deals))
+    return web.Response(text=xml, content_type="application/rss+xml", charset="utf-8")
+
+
 async def handle_trigger(request: web.Request) -> web.Response:
     required = os.getenv("INGEST_SECRET")
     if required and request.query.get("key") != required:
+        log.warning("Rejected /trigger-ingest with missing/invalid key from %s.", request.remote)
         return web.json_response({"error": "unauthorized"}, status=401)
-    log.info("/trigger-ingest invoked.")
+    log.info("/trigger-ingest invoked — starting daily ingest + broadcast.")
+    started = datetime.now(timezone.utc)
     loop = asyncio.get_running_loop()
     try:
         result = await loop.run_in_executor(None, _do_ingest_and_broadcast)
+        elapsed = (datetime.now(timezone.utc) - started).total_seconds()
+        log.info("/trigger-ingest completed in %.1fs — %s", elapsed, result)
         return web.json_response({"status": "ok", **result})
     except Exception as exc:
-        log.exception("trigger-ingest failed: %s", exc)
+        log.exception("/trigger-ingest failed after %s: %s", datetime.now(timezone.utc) - started, exc)
         return web.json_response({"status": "error", "detail": str(exc)}, status=500)
 
 
 async def handle_webhook(request: web.Request) -> web.Response:
     if not BOT_TOKEN or request.match_info.get("token") != BOT_TOKEN:
+        log.warning("Rejected webhook POST with missing/invalid token from %s.", request.remote)
         return web.Response(status=403, text="forbidden")
     if TEST_MODE or application is None:
+        log.warning(
+            "Webhook update arrived but Telegram is not wired (test_mode=%s, telegram_ready=%s). "
+            "Acknowledging so Telegram does not retry — check BOT_TOKEN / WEBHOOK_URL if this persists.",
+            TEST_MODE, application is not None,
+        )
         return web.json_response({"status": "ok", "test_mode": True})
     try:
         data = await request.json()
-    except Exception:
+    except Exception as exc:
+        log.error("Malformed webhook payload: %s", exc)
         return web.Response(status=400, text="bad request")
-    await application.process_update(Update.de_json(data, application.bot))
+    try:
+        await application.process_update(Update.de_json(data, application.bot))
+    except Exception as exc:
+        # Ack with 200 so Telegram doesn't hammer us with retries on a single bad update.
+        log.exception("Failed to process Telegram update: %s", exc)
+        return web.json_response({"status": "error"})
     return web.json_response({"status": "ok"})
 
 
@@ -300,6 +430,7 @@ def build_web_app() -> web.Application:
     web_app = web.Application()
     web_app.router.add_get("/", handle_root)
     web_app.router.add_get("/healthz", handle_health)
+    web_app.router.add_get("/feed.xml", handle_feed)
     web_app.router.add_get("/trigger-ingest", handle_trigger)
     web_app.router.add_post("/webhook/{token}", handle_webhook)
     return web_app

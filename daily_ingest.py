@@ -297,7 +297,12 @@ def step2_api_enrichment(cur: sqlite3.Cursor):
     try:
         api_data = fetch_api_data()
     except Exception as exc:
-        log.error("Failed to fetch API data: %s", exc)
+        log.error(
+            "TrustMRR API unreachable or errored (%s). Skipping enrichment for this run; "
+            "today's broadcast will fall back to the existing cached deals. The service "
+            "stays up and will retry on the next scheduled run.",
+            exc,
+        )
         return 0, 0
 
     listings = merge_listings(api_data)
@@ -329,23 +334,33 @@ def run_ingest(db_path: Path = DB_PATH) -> None:
     con = sqlite3.connect(db_path)
     try:
         cur = con.cursor()
-        
+
         # STEP 1
         log.info("--- STEP 1: Broad Scrape (Base Layer) ---")
-        added1, updated1 = step1_broad_scrape(cur)
-        con.commit()
-        
+        try:
+            added1, updated1 = step1_broad_scrape(cur)
+            con.commit()
+        except Exception as exc:
+            log.exception("Step 1 (broad scrape) failed — continuing with cached data: %s", exc)
+            added1, updated1 = 0, 0
+
         # STEP 2
         log.info("--- STEP 2: API Enrichment (Gold Layer) ---")
-        added2, updated2 = step2_api_enrichment(cur)
-        con.commit()
-        
+        try:
+            added2, updated2 = step2_api_enrichment(cur)
+            con.commit()
+        except Exception as exc:
+            log.exception("Step 2 (API enrichment) failed — continuing with cached data: %s", exc)
+            added2, updated2 = 0, 0
+
         # Log
         cur.execute(LOG_SQL, (now_iso(), "hybrid_v3", added1+added2, updated1+updated2, 0))
         con.commit()
-        
-    except sqlite3.Error as exc:
-        log.exception("Database error during ingest: %s", exc)
+
+    except Exception as exc:
+        # Broad catch: an ingest hiccup must never crash the Render service — it stays
+        # up, logs the cause clearly, and is ready for the next scheduled run.
+        log.exception("Ingest run aborted early (service stays up): %s", exc)
     finally:
         con.close()
 

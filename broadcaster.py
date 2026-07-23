@@ -89,19 +89,33 @@ def deal_url(deal: dict) -> str:
 # Formatting (clean, standard Markdown — no evasion tricks)
 # ---------------------------------------------------------------------------
 def format_telegram_digest(deals: list[dict]) -> str:
-    """Format a clean daily digest of the top deals for a Telegram channel."""
-    lines = ["🚀 *Today's Top Micro-SaaS Deals*", ""]
+    """Format a clean, high-CTR daily digest for the Telegram channel.
+
+    No spintax, no evasion — just scannable metrics, clear visual hierarchy, one
+    strong call-to-action per deal, and a share/notify nudge at the end.
+    """
+    lines = [
+        "🔥 *TODAY'S TOP MICRO-SAAS DEALS*",
+        "_Vetted acquisitions, best value first_",
+        "",
+    ]
     for i, d in enumerate(deals, 1):
         price = f"${d['price']:,.0f}" if d.get("price") else "N/A"
         mrr = f"${d['mrr']:,.0f}/mo" if d.get("mrr") else "N/A"
         mult = f"{d['multiple']:.2f}x" if d.get("multiple") is not None else "N/A"
         cat = d.get("category") or "Software"
-        lines.append(f"*{i}. {d.get('name', 'Unknown')}* ({cat})")
-        lines.append(f"   MRR: {mrr}  •  Asking: {price}  •  {mult}")
-        lines.append(f"   [View listing]({deal_url(d)})")
+        lines.append(f"*{i}. {d.get('name', 'Unknown')}*  ·  {cat}")
+        lines.append(f"    💸 MRR: *{mrr}*")
+        lines.append(f"    🏷 Asking: *{price}*")
+        lines.append(f"    📊 Multiple: *{mult}*")
+        lines.append(f"    👉 [View Deal & Financials]({deal_url(d)})")
         lines.append("")
+    lines.append("━━━━━━━━━━━━━━━━━━━━")
+    lines.append("🔔 *Turn on notifications* so you never miss a drop.")
+    lines.append("📲 *Forward this to a founder* hunting for their next business.")
     tags = hashtag_line(category=deals[0].get("category", ""), name=deals[0].get("name", ""))
-    lines.append(tags)
+    if tags:
+        lines.append(tags)
     return "\n".join(lines).strip()
 
 
